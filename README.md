@@ -111,15 +111,37 @@ that any nonzero return-delta is backed by the address bit that makes the manage
 reference pair proves it: two hooks with identical 1% fee code, differing only in deployment address
 — the one missing the `beforeSwapReturnDelta` bit is caught, the one carrying it passes.
 
+### 5. Return-delta bounds  ✅ available
+
+The other half of the return-delta footgun, and a denial of service. A hook that charges a fee via a
+`beforeSwap` specified-delta must keep it within the swap amount: v4 core adds the delta to the amount
+to swap and reverts `HookDeltaExceedsSwapAmount` when a fee exceeds the input. So a hook that charges
+a **flat** fee (or any fee that can exceed a small swap) doesn't just overcharge — it makes every swap
+at or below that size revert. Invisible to a test that only ever swaps one large, round amount.
+
+```solidity
+import {ReturnDeltaBoundsCheck} from "v4-hookguard/src/checks/ReturnDeltaBoundsCheck.sol";
+
+contract MyHookBounds is ReturnDeltaBoundsCheck {
+    function test_feeWithinSwap() public {
+        assertReturnDeltaBounded(IHooks(address(myHook)), address(poolManager));
+    }
+}
+```
+
+`assertReturnDeltaBounded` samples exact-input swaps down to dust and asserts the fee delta stays
+within each. The reference pair: a 1% hook passes at every size; a flat-fee hook is caught bricking
+small swaps.
+
 ## Roadmap (what a grant accelerates)
 
-The four shipped checks are the foundation. The suite this grows into:
+The five shipped checks are the foundation. The suite this grows into:
 
-5. **Delta-conservation invariant** — extend the harness to also assert the hook never leaves an
+6. **Delta-conservation invariant** — extend the harness to also assert the hook never leaves an
    unsettled currency delta on the manager across a multi-hook / re-entrant `unlock` sequence.
-6. **Reentrancy-through-unlock templates** — properties for hooks that re-enter the PoolManager's
+7. **Reentrancy-through-unlock templates** — properties for hooks that re-enter the PoolManager's
    `unlock`, the pattern behind several hook exploits.
-7. **Static hook linter + public safety scorecard** — the footgun set above extended to a
+8. **Static hook linter + public safety scorecard** — the footgun set above extended to a
    Slither-style detector and a registry that scores deployed hooks.
 
 ## Why

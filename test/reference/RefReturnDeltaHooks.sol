@@ -52,3 +52,27 @@ contract GoodReturnDeltaHook is FeeHookBase {
 contract SilentDropHook is FeeHookBase {
     constructor(address _poolManager) FeeHookBase(_poolManager) {}
 }
+
+/// @dev BROKEN (bounds): charges a FLAT fee regardless of swap size. Deployed correctly (with the
+///      returnDelta bit), so it passes the consistency check — but for any exact-input swap at or
+///      below FLAT_FEE the specified-delta exceeds the input and the PoolManager reverts
+///      HookDeltaExceedsSwapAmount: every small swap is bricked.
+contract FlatFeeHook {
+    address internal immutable poolManager;
+    int128 internal constant FLAT_FEE = 1e15;
+
+    error NotPoolManager();
+
+    constructor(address _poolManager) {
+        poolManager = _poolManager;
+    }
+
+    function beforeSwap(address, PoolKey calldata, IPoolManager.SwapParams calldata, bytes calldata)
+        external
+        view
+        returns (bytes4, BeforeSwapDelta, uint24)
+    {
+        if (msg.sender != poolManager) revert NotPoolManager();
+        return (IHooks.beforeSwap.selector, toBeforeSwapDelta(FLAT_FEE, 0), 0);
+    }
+}
