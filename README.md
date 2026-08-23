@@ -180,13 +180,33 @@ contract MyHookConservation is HookConservationHarness {
 proves the added coverage: a hook that leaks a cut of every swap to an external address is caught by
 conservation even though it holds nothing itself — exactly the case the "retains no value" check misses.
 
-## Roadmap (what a grant accelerates)
+### 8. Static permission lint + safety scorecard  ✅ available
 
-The seven shipped checks are the foundation. The suite this grows into:
+Two static (pure/view) checks that score any hook address — including one already deployed on-chain —
+without a pool or a written test. `HookPermissionLint` cross-checks a hook's declared
+`getHookPermissions()` against its address bitmap: a mismatch means the hook was deployed at a
+wrong/unmined address, so its intended callbacks won't fire (v4 core rejects the pool at init, but by
+then the deploy is spent). `HookScorecard` aggregates that and the {HookAddressLint} bitmap sanity into
+one structured `Report`.
 
-8. **Static hook linter + public safety scorecard** — the footgun set above extended to a
-   Slither-style detector and a registry that scores deployed hooks, so a hook is scanned without
-   writing a test.
+```solidity
+import {HookScorecard} from "v4-hookguard/src/checks/HookScorecard.sol";
+
+HookScorecard.Report memory r = HookScorecard.scan(address(myHook));
+assertTrue(r.passed, r.addressWellFormed ? r.permissionIssue : r.addressIssue);
+```
+
+The references prove both branches: a hook whose declaration matches its address scores clean, one
+whose declaration adds a callback its address lacks is flagged, and a malformed address bitmap
+(returnDelta without its base) is flagged — while a hand-rolled hook that declares no permissions is
+reported as such, not failed.
+
+## Roadmap
+
+The eight checks above cover v4-hookguard's footgun set — unguarded callbacks, address-bitmap and
+permission-declaration lint, value retention and conservation, return-delta consistency and bounds,
+and reentrancy. Ongoing work is adoption: the [guard-ci](https://github.com/dngr2/guard-ci) CI action
+and scaffolder, worked integrations, and a public registry that scores deployed hooks.
 
 ## Why
 
