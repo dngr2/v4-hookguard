@@ -50,3 +50,28 @@ contract SkimHook {
         return (IHooks.afterSwap.selector, int128(int256(uint256(SKIM))));
     }
 }
+
+/// @dev BROKEN (leak): diverts a cut of every swap's output to an EXTERNAL address instead of keeping
+///      it. Because the hook itself ends each call holding nothing, the "hook retains no value"
+///      invariant does NOT flag it — the value is gone from the pool all the same. Only a
+///      conservation invariant (pool + LP reserves are conserved) catches it. Deployed at an address
+///      with AFTER_SWAP + AFTER_SWAP_RETURNS_DELTA flags (low bits 0x44).
+contract LeakHook {
+    IPoolManager public immutable manager;
+    address public immutable sink;
+    uint128 internal constant LEAK = 1e6;
+
+    constructor(IPoolManager _manager, address _sink) {
+        manager = _manager;
+        sink = _sink;
+    }
+
+    function afterSwap(address, PoolKey calldata key, IPoolManager.SwapParams calldata params, BalanceDelta, bytes calldata)
+        external
+        returns (bytes4, int128)
+    {
+        Currency out = params.zeroForOne ? key.currency1 : key.currency0;
+        manager.take(out, sink, LEAK); // divert to an external address the hook never holds
+        return (IHooks.afterSwap.selector, int128(int256(uint256(LEAK))));
+    }
+}

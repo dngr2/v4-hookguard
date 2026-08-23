@@ -158,14 +158,35 @@ The check ships a reusable re-entrant attacker and runs it against the payout, a
 receives more than it was owed. The reference pair proves it: the checks-effects-interactions
 violation lets the attacker drain 6× its balance; the corrected hook lets it take exactly what it owed.
 
+### 7. Pool value conservation  ✅ available
+
+A stronger sibling of check 3. The invariant harness checks the *hook* holds no value — but a hook
+can skim value and forward it straight to a third party (a fee recipient, an attacker's address),
+ending each call holding nothing while the pool is still drained. That check passes; the value is
+gone all the same. This harness closes the gap by conservation: with the pool and one fuzzing
+LP/swapper as a closed system, the total of each currency held by the PoolManager plus that actor is
+fixed — operations only move value between them, so any value leaving to a third party makes the sum
+drop.
+
+```solidity
+import {HookConservationHarness} from "v4-hookguard/src/harness/HookConservationHarness.sol";
+
+contract MyHookConservation is HookConservationHarness {
+    function _setUpHook() internal override returns (IHooks) { /* deploy + return your hook */ }
+}
+```
+
+`forge test` fuzzes swaps and liquidity and reports `invariant_poolValueConserved`. The reference
+proves the added coverage: a hook that leaks a cut of every swap to an external address is caught by
+conservation even though it holds nothing itself — exactly the case the "retains no value" check misses.
+
 ## Roadmap (what a grant accelerates)
 
-The six shipped checks are the foundation. The suite this grows into:
+The seven shipped checks are the foundation. The suite this grows into:
 
-7. **Delta-conservation invariant** — extend the harness to also assert the hook never leaves an
-   unsettled currency delta on the manager across a multi-hook / re-entrant `unlock` sequence.
 8. **Static hook linter + public safety scorecard** — the footgun set above extended to a
-   Slither-style detector and a registry that scores deployed hooks.
+   Slither-style detector and a registry that scores deployed hooks, so a hook is scanned without
+   writing a test.
 
 ## Why
 
