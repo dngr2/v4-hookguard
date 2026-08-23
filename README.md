@@ -87,14 +87,36 @@ own accounting. The reference pair proves the harness bites: a benign no-op hook
 invariant across thousands of operations, while a skimming hook that takes an `afterSwap`
 return-delta into itself is caught leaving with pool value on a single swap.
 
+### 4. Return-delta consistency  ✅ available
+
+A silent footgun. A hook charges a fee or takes a swap share by returning a nonzero delta from
+`beforeSwap` (a `BeforeSwapDelta`) or `afterSwap` (an `int128`) — but the PoolManager only reads
+and applies that delta if the hook's **address** carries the matching `*ReturnDelta` permission
+bit. Deploy the same hook at an address without that bit and the manager silently discards the
+return value: the hook collects nothing while its own accounting believes it charged. Every
+happy-path "the swap succeeds" test still passes.
+
+```solidity
+import {ReturnDeltaConsistencyCheck} from "v4-hookguard/src/checks/ReturnDeltaConsistencyCheck.sol";
+
+contract MyHookReturnDelta is ReturnDeltaConsistencyCheck {
+    function test_returnDeltaConsistent() public {
+        assertReturnDeltaConsistent(IHooks(address(myHook)), address(poolManager));
+    }
+}
+```
+
+`assertReturnDeltaConsistent` invokes the swap callbacks in isolation as the PoolManager and asserts
+that any nonzero return-delta is backed by the address bit that makes the manager honor it. The
+reference pair proves it: two hooks with identical 1% fee code, differing only in deployment address
+— the one missing the `beforeSwapReturnDelta` bit is caught, the one carrying it passes.
+
 ## Roadmap (what a grant accelerates)
 
-The three shipped checks are the foundation. The suite this grows into:
+The four shipped checks are the foundation. The suite this grows into:
 
-4. **Delta-conservation invariant** — extend the harness to also assert the hook never leaves an
+5. **Delta-conservation invariant** — extend the harness to also assert the hook never leaves an
    unsettled currency delta on the manager across a multi-hook / re-entrant `unlock` sequence.
-5. **Return-delta bounds & consistency** — when a hook returns a `BeforeSwapDelta`/`int128`, it
-   is within bounds and matches its declared `*ReturnDelta` permission.
 6. **Reentrancy-through-unlock templates** — properties for hooks that re-enter the PoolManager's
    `unlock`, the pattern behind several hook exploits.
 7. **Static hook linter + public safety scorecard** — the footgun set above extended to a
