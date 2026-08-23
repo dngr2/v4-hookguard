@@ -60,19 +60,44 @@ using HookAddressLint for address;
 assertTrue(address(myHook).isWellFormed(), address(myHook).lint());
 ```
 
+### 3. Hook invariant harness  ✅ available
+
+A stateful fuzz campaign, not a single call. It stands up a **real `PoolManager` + your hook**,
+seeds a live pool, and fuzzes swaps and liquidity through the actual v4 routers — then, after
+every operation, asserts the property every hook must keep: **it retains no value it is not owed**
+— no ERC-6909 claim on either pool currency inside the manager, and no direct token balance of
+one. A hook that skims a return-delta, over-charges a fee into itself, or accumulates claims is
+caught by a shrunk counterexample, not left for an auditor to find.
+
+```solidity
+import {HookInvariantHarness} from "v4-hookguard/src/harness/HookInvariantHarness.sol";
+
+contract MyHookInvariant is HookInvariantHarness {
+    function _setUpHook() internal override returns (IHooks) {
+        // deploy your hook at its permission-flagged address and return it
+        deployCodeTo("MyHook.sol:MyHook", HOOK_ADDR);
+        return IHooks(HOOK_ADDR);
+    }
+}
+```
+
+`forge test` then fuzzes the pool against your hook and reports `invariant_hookRetainsNoValue`.
+If your hook is *designed* to custody value, override `_setUpHook` accordingly or assert on its
+own accounting. The reference pair proves the harness bites: a benign no-op hook holds the
+invariant across thousands of operations, while a skimming hook that takes an `afterSwap`
+return-delta into itself is caught leaving with pool value on a single swap.
+
 ## Roadmap (what a grant accelerates)
 
-The two shipped checks are the foundation. The suite this grows into:
+The three shipped checks are the foundation. The suite this grows into:
 
-3. **Hook invariant harness** — a stateful campaign that fuzzes swaps/liquidity through a real
-   `PoolManager` + your hook and asserts the properties every hook must keep: **delta/balance
-   conservation** with the manager (the hook never leaves an unsettled currency delta) and
-   **no-value-retained** (the hook accumulates nothing it is not owed).
-4. **Return-delta bounds & consistency** — when a hook returns a `BeforeSwapDelta`/`int128`, it
+4. **Delta-conservation invariant** — extend the harness to also assert the hook never leaves an
+   unsettled currency delta on the manager across a multi-hook / re-entrant `unlock` sequence.
+5. **Return-delta bounds & consistency** — when a hook returns a `BeforeSwapDelta`/`int128`, it
    is within bounds and matches its declared `*ReturnDelta` permission.
-5. **Reentrancy-through-unlock templates** — properties for hooks that re-enter the PoolManager's
+6. **Reentrancy-through-unlock templates** — properties for hooks that re-enter the PoolManager's
    `unlock`, the pattern behind several hook exploits.
-6. **Static hook linter + public safety scorecard** — the footgun set (2 above) extended to a
+7. **Static hook linter + public safety scorecard** — the footgun set above extended to a
    Slither-style detector and a registry that scores deployed hooks.
 
 ## Why
