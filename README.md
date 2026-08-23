@@ -133,14 +133,37 @@ contract MyHookBounds is ReturnDeltaBoundsCheck {
 within each. The reference pair: a 1% hook passes at every size; a flat-fee hook is caught bricking
 small swaps.
 
+### 6. Reentrancy through unlock  ✅ available
+
+The pattern behind several real hook exploits. A hook that custodies value and pays it out — settling
+a fee to a recipient, returning a tip, refunding a user — often does the payout with a raw transfer
+(native value, or `manager.take` inside an `unlock` callback that hands control to the recipient). If
+it zeroes the recipient's owed balance *after* that transfer instead of before, the recipient
+re-enters the payout while its balance still reads as owed and drains the hook. A single honest claim
+by an EOA passes every test; only a re-entrant contract exposes it.
+
+```solidity
+import {ReentrancyGuardCheck, IClaimable, MaliciousReentrant} from "v4-hookguard/src/checks/ReentrancyGuardCheck.sol";
+
+contract MyHookReentrancy is ReentrancyGuardCheck {
+    function test_payoutNotReentrant() public {
+        MaliciousReentrant attacker = new MaliciousReentrant(IClaimable(address(myHook)), 5);
+        // set myHook up so `attacker` is owed `X` and the hook holds more than `X`, then:
+        assertClaimNotReentrant(attacker, X);
+    }
+}
+```
+
+The check ships a reusable re-entrant attacker and runs it against the payout, asserting it never
+receives more than it was owed. The reference pair proves it: the checks-effects-interactions
+violation lets the attacker drain 6× its balance; the corrected hook lets it take exactly what it owed.
+
 ## Roadmap (what a grant accelerates)
 
-The five shipped checks are the foundation. The suite this grows into:
+The six shipped checks are the foundation. The suite this grows into:
 
-6. **Delta-conservation invariant** — extend the harness to also assert the hook never leaves an
+7. **Delta-conservation invariant** — extend the harness to also assert the hook never leaves an
    unsettled currency delta on the manager across a multi-hook / re-entrant `unlock` sequence.
-7. **Reentrancy-through-unlock templates** — properties for hooks that re-enter the PoolManager's
-   `unlock`, the pattern behind several hook exploits.
 8. **Static hook linter + public safety scorecard** — the footgun set above extended to a
    Slither-style detector and a registry that scores deployed hooks.
 
